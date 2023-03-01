@@ -322,6 +322,7 @@ class BatchEstimator:
         x0_original = rot@self.states[:,0]
         
         # Set up estimation matrices
+        # self.obs_num = 1
         H = np.empty((6*self.obs_num,6))
         dz = np.empty((6*self.obs_num,1))
         
