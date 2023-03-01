@@ -24,6 +24,7 @@ R_EARTH = 6378137 # Earth radius [m]
 GRAV = 6.6743e-11 # gravitational constant [m3/kg/s2]
 M_EARTH = 5.972e24 # mass of Earth [kg]
 F_EARTH = 0.00335279499764807 # Earth flattening constant
+MIN_VIS_SATS = 5 # minimum number of visible GPS satellites to include measurment
 
 class BatchEstimator:
 
@@ -154,7 +155,8 @@ class BatchEstimator:
             self.states[5,self.obs_num] = data_set[header_loc[10]]
             
             # Move to the next line
-            self.obs_num = self.obs_num + 1
+            if self.nsats[self.obs_num] > MIN_VIS_SATS:
+                self.obs_num = self.obs_num + 1
             data_set = gps_data.readline()
         
         # Reduce data sets to minimum number
@@ -320,7 +322,6 @@ class BatchEstimator:
         x0_original = rot@self.states[:,0]
         
         # Set up estimation matrices
-        # self.obs_num = 10
         H = np.empty((6*self.obs_num,6))
         dz = np.empty((6*self.obs_num,1))
         
@@ -387,10 +388,12 @@ class BatchEstimator:
         self.t0 = self.time[0]
         
         return 1
-        
+    
     def state_to_kepler(self):
         """!@brief Transform ECI position and velocity to Kepler orbital parameters.
         """
+        
+        mu = GRAV*M_EARTH
         
         # Calculate position and velocity norm
         r = self.x0[0:3]
@@ -398,36 +401,40 @@ class BatchEstimator:
         rr = np.linalg.norm(r)
         vv = np.linalg.norm(v)
         
-        # Determine mean motion
-        a_major = 1/(2/rr - vv**2/GRAV/M_EARTH)
-        n_motion = np.sqrt(GRAV*M_EARTH/a_major**3)
+        # Calculate angular momentum and node vector
+        h = np.cross(r,v)
+        k = [0.,0.,1.]
+        N = np.cross(k,h)
+        
+        # Calculate eccentricity vector
+        ee = ((vv**2 - mu/rr)*r - np.dot(r,v)*v)/mu
+        ecc = np.linalg.norm(ee) 
+        
+        # Calculate energy
+        energy = vv**2/2 - mu/rr
+        
+        # Determine semimajor axis and mean motion
+        a_major = -mu/2/energy
+        n_motion = np.sqrt(mu/a_major**3)
         n_motion = n_motion/2/np.pi*60*60*24
         
         # Determine inclination
-        k = [0.,0.,1.]
-        W = np.cross(r,v)/np.linalg.norm(np.cross(r,v))
-        inc = np.arccos(np.dot(W,k))*180/np.pi
-
-        # Determine eccentricity
-        ee = ((vv**2 - GRAV*M_EARTH/rr)*r - np.dot(r,v)*v)/GRAV/M_EARTH
-        ecc = np.linalg.norm(ee)
+        inc = np.arccos(h[2]/np.linalg.norm(h))
+        inc = inc*180./np.pi
         
         # Determine right ascension of ascending node
-        i = [1.,0.,0.]
-        N = np.cross(k,W)/np.linalg.norm(np.cross(k,W))
-        raan = np.arctan2(np.dot(np.cross(i,N),k),np.dot(i,N))
-        if N[1] < 0:
-            raan = 2*np.pi + raan
-        raan = raan*180/np.pi % 360
+        raan = np.arccos(N[0]/np.linalg.norm(N))
+        if N[1] < 0: raan = 2*np.pi - raan
+        raan = raan*180/np.pi
         
         # Determine argument of perigee
-        aop = np.arctan2(np.dot(np.cross(N,ee),W),np.dot(N,ee))
-        if ee[2] < 0:
-            aop = 2*np.pi + aop
-        aop = aop*180/np.pi % 360
+        aop = np.arccos(np.dot(N,ee)/np.linalg.norm(N)/ecc)
+        if ee[2] < 0: aop = 2*np.pi - aop
+        aop = aop*180./np.pi
         
         # Determine true anomaly
-        true_anom = np.arctan2(np.dot(np.cross(ee,r),W),np.dot(ee,r))
+        true_anom = np.arccos(np.dot(ee,r)/ecc/rr)
+        if np.dot(r,v) > 0: true_anom = 2*np.pi - true_anom
         
         # Determine eccentric anomaly
         E_anom = 2*np.arctan2(((1+ecc)/(1-ecc))**(-1/2)*np.sin(true_anom/2),\
@@ -435,13 +442,14 @@ class BatchEstimator:
             
         # Determine mean anomaly at epoch
         M_anom = E_anom - ecc*np.sin(E_anom)
-        M_anom = M_anom*180/np.pi % 360
+        M_anom = M_anom*180/np.pi
         
         # Set parameter
         # [a_major, ecc, inc, raan, aop, M_anom]
         self.para = [n_motion, ecc, inc, raan, aop, M_anom]
           
         return
+    
     
     def read_tle(self,tle):
         """!@brief Read and stores the parameters extracted from a TLE string.
