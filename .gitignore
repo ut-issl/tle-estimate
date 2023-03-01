@@ -4,4 +4,5 @@ kernel/
 .pydevproject
 __pychache__
 __pychache__/
+*verification*
 

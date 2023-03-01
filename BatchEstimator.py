@@ -222,7 +222,8 @@ class BatchEstimator:
             a = -GRAV*M_EARTH*r/rr**3
             
             # Calculate Jacobian
-            dadr = -GRAV*M_EARTH*(np.ones((3,3))/rr**3 - 3*r@r.T/rr**5)
+            dadr = -GRAV*M_EARTH*(np.ones((3,3))/rr**3 -\
+                                   3*r.reshape((3,1))@r.reshape((3,1)).T/rr**5)
         
         return a,dadr
     
@@ -434,7 +435,7 @@ class BatchEstimator:
         
         # Determine true anomaly
         true_anom = np.arccos(np.dot(ee,r)/ecc/rr)
-        if np.dot(r,v) > 0: true_anom = 2*np.pi - true_anom
+        if np.dot(r,v) < 0: true_anom = 2*np.pi - true_anom
         
         # Determine eccentric anomaly
         E_anom = 2*np.arctan2(((1+ecc)/(1-ecc))**(-1/2)*np.sin(true_anom/2),\
