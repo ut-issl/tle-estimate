@@ -27,11 +27,11 @@ These may be simply installed using:
 An example file is included  _main_example.py_  that can be run to demonstrate use of the BlockEstimator class.
 
 The Spice library is used to calculate positions of the Moon and Sun, as well as the
-orientation of the Earth. The  _kernel_  folder contains a number of required files, including:s
-* [de440.bsp](https://naif.jpl.nasa.gov/pub/naif/generic_kernels/spk/planets/de440.bsp)
-* [earth_assoc_itrf93.tf](https://naif.jpl.nasa.gov/pub/naif/generic_kernels/fk/planets/earth_assoc_itrf93.tf)
-* [earth_latest_high_prec.bpc](https://naif.jpl.nasa.gov/pub/naif/generic_kernels/pck/earth_latest_high_prec.bpc)
-* [naif0012.tls](https://naif.jpl.nasa.gov/pub/naif/generic_kernels/lsk/naif0012.tls)
+orientation of the Earth. The  _kernel_  folder contains a number of required files, including:
+* [de440.bsp](https://naif.jpl.nasa.gov/pub/naif/generic_kernels/spk/planets/)
+* [earth_assoc_itrf93.tf](https://naif.jpl.nasa.gov/pub/naif/generic_kernels/fk/planets/)
+* [earth_latest_high_prec.bpc](https://naif.jpl.nasa.gov/pub/naif/generic_kernels/pck/)
+* [naif0012.tls](https://naif.jpl.nasa.gov/pub/naif/generic_kernels/lsk/)
 
 Each file must be downloaded and placed into the kernel folder before running. The location is set using  _batch_estimator.tm_ .
 

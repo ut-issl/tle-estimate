@@ -214,7 +214,7 @@ class BatchEstimator:
             a = -rot.T@dcm@a
 
             # Calculate Jacobian
-            dadr = self.spherical_gravity_jacobian(r)
+            dadr = self.spherical_gravity_jacobian(r_f)
             
         else:
         
@@ -222,8 +222,7 @@ class BatchEstimator:
             a = -GRAV*M_EARTH*r/rr**3
             
             # Calculate Jacobian
-            dadr = -GRAV*M_EARTH*(np.ones((3,3))/np.linalg.norm(r)**3 - \
-                         3*r@r.T/np.linalg.norm(r)**5)
+            dadr = -GRAV*M_EARTH*(np.ones((3,3))/rr**3 - 3*r@r.T/rr**5)
         
         return a,dadr
     
@@ -342,7 +341,7 @@ class BatchEstimator:
             # Calculate propagated state x approximate by numerical integration
             def xfun(t,x,t0):
                 time = t0 + pd.Timedelta(t,units='s')
-                a_e,_ = self.earth_gravity(time,x[0:3],'ss')
+                a_e,_ = self.earth_gravity(time,x[0:3],'point')
                 a_atm,_,_ = self.atmospheric_drag(time,x[0:3],x[3:6],'ignore')
                 a = a_e + a_atm
                 return np.concatenate((x[3:6], a)) 
@@ -354,7 +353,7 @@ class BatchEstimator:
                 return integ.get_return_code()
             
             # Calculate acting forces
-            _,dadr_e = self.earth_gravity(self.time[0],x0_original[0:3],'spherical')
+            _,dadr_e = self.earth_gravity(self.time[0],x0_original[0:3],'point')
             _,dadr_atm,dadv_atm = self.atmospheric_drag(self.time[i],x0_original[0:3],x0_original[3:6],'ignore')
             
             # Calculate F matrix
