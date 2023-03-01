@@ -1,0 +1,7 @@
+data/
+kernel/
+.project
+.pydevproject
+__pychache__
+__pychache__/
+
