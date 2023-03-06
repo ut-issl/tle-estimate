@@ -17,8 +17,6 @@ import numdifftools as nd
 import scipy as sp
 import pyshtools as pysh
 from sgp4.api import Satrec
-from sgp4.conveniences import jday_datetime
-from sgp4.propagation import sgp4
 
 # Global Constants
 DEBUG = 1 # mode of operation (0 = normal, 1 = debug)
@@ -500,8 +498,9 @@ class BatchEstimator:
         """
         
         # Set constants
-        tol = 1e-4
+        tol = 1e-5
         delta_perc = 0.001
+        max_iter = 100
         
         # Define solver function that will need to equal zero for Kepler 
         # to be exact to sgp4 TLE
@@ -532,7 +531,8 @@ class BatchEstimator:
         # Set up iterative solver loop
         para = self.para
         deltay = 1.0
-        while np.linalg.norm(deltay) > tol:
+        iter_count = 0
+        while np.linalg.norm(deltay) > tol and max_iter > iter_count:
             
             # Build Jacobian using forward difference quotient
             M = np.zeros((6,6))
@@ -548,6 +548,8 @@ class BatchEstimator:
             deltax = self.x0 - f 
             deltay = Minv@deltax
             para = para + deltay
+            
+            iter_count = iter_count + 1
         
         # Set parameter
         # [n_motion, ecc, inc, raan, aop, M_anom]
@@ -631,8 +633,8 @@ class BatchEstimator:
         
         checksum = 0
         for ch in line:
-            if (ch.isdigit()):
-                checksum += np.int(ch)
+            if ch.isdigit() == True: checksum += np.int(ch)
+            elif ch == '-': checksum += 1
         
         return checksum % 10
     
