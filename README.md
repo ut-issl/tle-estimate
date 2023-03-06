@@ -19,10 +19,11 @@ This code is developed and tested on Python3. There is a number of class depende
 * numdifftools
 * scipy
 * pyshtools
+* sgp4
 
 These may be simply installed using:
 
-`pip3 install numpy pandas pyatmos spiceypy numdifftools scipy pyshtools`
+`pip3 install numpy pandas pyatmos spiceypy numdifftools scipy pyshtools sgp4`
 
 An example file is included  _main_example.py_  that can be run to demonstrate use of the BlockEstimator class.
 
