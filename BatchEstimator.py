@@ -16,6 +16,9 @@ from pyatmos.jb2008.spaceweather import read_sw_jb2008
 import numdifftools as nd
 import scipy as sp
 import pyshtools as pysh
+from sgp4.api import Satrec
+from sgp4.conveniences import jday_datetime
+from sgp4.propagation import sgp4
 
 # Global Constants
 DEBUG = 1 # mode of operation (0 = normal, 1 = debug)
@@ -25,6 +28,8 @@ GRAV = 6.6743e-11 # gravitational constant [m3/kg/s2]
 M_EARTH = 5.972e24 # mass of Earth [kg]
 F_EARTH = 0.00335279499764807 # Earth flattening constant
 MIN_VIS_SATS = 5 # minimum number of visible GPS satellites to include measurment
+MODEL_GRAV = 'J2' 
+MODEL_ATMOS = 'ignore'
 
 class BatchEstimator:
 
@@ -191,6 +196,9 @@ class BatchEstimator:
         @return    dadr Earth gravitation Jacobian in terms of position ((3,3))
         """
         
+        J2 = 0.001082 # J2 perturbation non-dimensional
+        J2 = J2*R_EARTH**2*GRAV*M_EARTH
+        
         # Calculate distance
         rr = np.linalg.norm(r)
         
@@ -216,6 +224,33 @@ class BatchEstimator:
             # Calculate Jacobian
             dadr = self.spherical_gravity_jacobian(r_f)
             
+        elif 'J2' == model:
+            
+            # Calculate terms
+            x = r[0]; y = r[1]; z = r[2]
+            term0 = 6*z**2 - 3/2*(x**2 + y**2)
+            term1 = 3*z**2 - 9/2*(x**2 + y**2)
+
+            # Calculate acceleration
+            a = -GRAV*M_EARTH*r/rr**3
+            a[0] = a[0] + J2*x/rr**7*term0
+            a[1] = a[1] + J2*y/rr**7*term0
+            a[2] = a[2] + J2*z/rr**7*term1
+            
+            # Calculate Jacobian
+            dadr = -GRAV*M_EARTH*(np.ones((3,3))/rr**3 -\
+                                   3*r.reshape((3,1))@r.reshape((3,1)).T/rr**5)
+            dadr[0,0] = dadr[0,0] + J2*(rr**2-7*x**2)/rr**9*term0 - 3*J2*x**2/rr**7
+            dadr[0,1] = dadr[0,1] - 7*J2*x*y/rr**9*term0 - 3*J2*x*y/rr**7
+            dadr[0,2] = dadr[0,2] - 7*J2*x*z/rr**9*term0 + 12*J2*x*z/rr**7
+            dadr[1,0] = dadr[1,0] - 7*J2*x*y/rr**9*term0 - 3*J2*x*y/rr**7
+            dadr[1,1] = dadr[1,1] + J2*(rr**2-7*y**2)/rr**9*term0 - 3*J2*y**2/rr**7
+            dadr[1,2] = dadr[1,2] - 7*J2*y*z/rr**9*term0 + 12*J2*y*z/rr**7
+            dadr[2,0] = dadr[2,0] - 7*J2*x*z/rr**9*term1 - 9*J2*x*z/rr**7
+            dadr[2,1] = dadr[2,1] - 7*J2*y*z/rr**9*term1 - 9*J2*y*z/rr**7
+            dadr[2,2] = dadr[2,2] + J2*(rr**2-7*z**2)/rr**9*term1 + 6*J2*z**2/rr**7
+            
+            return a,dadr
         else:
         
             # Calculate acceleration
@@ -277,7 +312,7 @@ class BatchEstimator:
             return np.zeros(3),np.zeros((3,3)), np.zeros((3,3))
         
         # Calculate gravitational density
-        rho = self.find_atmospheric_density(time,r.reshape((3,1)),'expo')
+        rho = self.find_atmospheric_density(time,r.reshape((3,1)),model)
         
         # Relative velocity of spacecraft relative to Earth atmosphere (assume relative to
         # Earth rotation)
@@ -325,67 +360,72 @@ class BatchEstimator:
         # self.obs_num = 1
         H = np.empty((6*self.obs_num,6))
         dz = np.empty((6*self.obs_num,1))
-        
-        # Build the estimation operation
-        for i in range(self.obs_num):
-            
-            # Compute state and transformation
-            et = spice.datetime2et(self.time[i])
-            rot = spice.sxform('ITRF93','J2000',et)
+        self.x0 = x0_original
+        dx = np.ones((6,1))
 
-            # Retrieve measurement
-            z = rot@np.reshape(self.states[:,i],(6,1))
+        # Build the estimation operation
+        iter_count = 0
+        while np.linalg.norm(dx) > 1e-5 and iter_count < 10:
+            for i in range(self.obs_num):
+                
+                # Compute state and transformation
+                et = spice.datetime2et(self.time[i])
+                rot = spice.sxform('ITRF93','J2000',et)
+    
+                # Retrieve measurement
+                z = rot@np.reshape(self.states[:,i],(6,1))
+                
+                # Set current time
+                dt = pd.Timedelta(self.time[i] - self.time[0]).total_seconds()
+                
+                # Calculate propagated state x approximate by numerical integration
+                def xfun(t,x,t0):
+                    time = t0 + pd.to_timedelta(t, unit='sec')
+                    a_e,_ = self.earth_gravity(time,x[0:3],MODEL_GRAV)
+                    a_atm,_,_ = self.atmospheric_drag(time,x[0:3],x[3:6],MODEL_ATMOS)
+                    a = a_e + a_atm
+                    return np.concatenate((x[3:6], a)) 
+                integ = sp.integrate.ode(xfun).set_integrator('vode')
+                integ.set_initial_value(self.x0,0).set_f_params(self.time[0])
+                x = integ.integrate(dt).reshape((6,1))
+                if integ.successful() != 1:   
+                    return integ.get_return_code()
+                
+                # Calculate acting forces
+                _,dadr_e = self.earth_gravity(self.time[0],x0_original[0:3],MODEL_GRAV)
+                _,dadr_atm,dadv_atm = self.atmospheric_drag(self.time[i],x0_original[0:3],x0_original[3:6],MODEL_ATMOS)
+                
+                # Calculate F matrix
+                F = np.block([[np.zeros((3,3)), np.eye(3)],
+                              [dadr_e + dadr_atm, dadv_atm]])
+                
+                # Calculate Phi approximate by numerical integration
+                def Phifun(t,Phi,F):
+                    Phi = Phi.reshape((6,6))
+                    dPhi = F@Phi
+                    return dPhi.reshape(-1)
+                dt = pd.Timedelta(self.time[i] - self.time[0]).total_seconds()
+                Phi0 = np.eye(6).reshape(-1)
+                integ = sp.integrate.ode(Phifun).set_integrator('vode')
+                integ.set_initial_value(Phi0,0).set_f_params(F)
+                Phi = integ.integrate(dt).reshape((6,6))
+                if integ.successful() != 1:
+                    return integ.get_return_code()
+                
+                # Contribute this to H and z vectors
+                dz[i*6:(i*6+6),:] = z - x
+                H[i*6:(i*6+6),:] = Phi
+                
             
-            # Set current time
-            dt = pd.Timedelta(self.time[i] - self.time[0]).total_seconds()
-            
-            # Calculate propagated state x approximate by numerical integration
-            def xfun(t,x,t0):
-                time = t0 + pd.Timedelta(t,units='s')
-                a_e,_ = self.earth_gravity(time,x[0:3],'point')
-                a_atm,_,_ = self.atmospheric_drag(time,x[0:3],x[3:6],'ignore')
-                a = a_e + a_atm
-                return np.concatenate((x[3:6], a)) 
-            x0 = x0_original
-            integ = sp.integrate.ode(xfun).set_integrator('vode')
-            integ.set_initial_value(x0,0).set_f_params(self.time[0])
-            x = integ.integrate(dt).reshape((6,1))
-            if integ.successful() != 1:   
-                return integ.get_return_code()
-            
-            # Calculate acting forces
-            _,dadr_e = self.earth_gravity(self.time[0],x0_original[0:3],'point')
-            _,dadr_atm,dadv_atm = self.atmospheric_drag(self.time[i],x0_original[0:3],x0_original[3:6],'ignore')
-            
-            # Calculate F matrix
-            # F = np.block([[np.zeros((3,3)), np.eye(3)],
-            #               [dadr_e + dadr_atm, dadv_atm]])
-            F = np.block([[np.zeros((3,3)), np.eye(3)],
-                          [dadr_e + dadr_atm, dadv_atm]])
-            
-            
-            # Calculate Phi approximate by numerical integration
-            def Phifun(t,Phi,F):
-                Phi = Phi.reshape((6,6))
-                dPhi = F@Phi
-                return dPhi.reshape(-1)
-            dt = pd.Timedelta(self.time[i] - self.time[0]).total_seconds()
-            Phi0 = np.eye(6).reshape(-1)
-            integ = sp.integrate.ode(Phifun).set_integrator('vode')
-            integ.set_initial_value(Phi0,0).set_f_params(F)
-            Phi = integ.integrate(dt).reshape((6,6))
-            if integ.successful() != 1:
-                return integ.get_return_code()
-            
-            # Contribute this to H and z vectors
-            dz[i*6:(i*6+6),:] = z - x
-            H[i*6:(i*6+6),:] = Phi
-            
-        # Calculate SVD estimation
-        U,D,V = sp.linalg.svd(H,full_matrices=False)
-        D = np.diag(D)
-        dx = V.T@sp.linalg.inv(D)@U.T@dz
-        self.x0 = x0_original + dx.reshape(-1)
+            # Calculate SVD estimation
+            U,D,V = sp.linalg.svd(H,full_matrices=False)
+            D = np.diag(D)
+            dx = V.T@sp.linalg.inv(D)@U.T@dz
+            self.x0 = self.x0 + dx.reshape(-1)
+ 
+            iter_count = iter_count + 1
+
+        
         self.t0 = self.time[0]
         
         return 1
@@ -446,8 +486,72 @@ class BatchEstimator:
         M_anom = M_anom*180/np.pi
         
         # Set parameter
-        # [a_major, ecc, inc, raan, aop, M_anom]
+        # [n_motion, ecc, inc, raan, aop, M_anom]
         self.para = [n_motion, ecc, inc, raan, aop, M_anom]
+          
+        return
+    
+    def state_to_kepler_sgp4(self):
+        """!@brief Transform ECI position and velocity to Kepler orbital parameters by the SGP4
+                   definition.
+                   Reference: Lee, Byoung-Sun & Park, Jae-Woo. (2003). Estimation of the SGP4 Drag Term
+                   From Two Osculating Orbit States. Journal of Astronomy and Space Sciences. 20. 11-20. 
+                   10.5140/JASS.2003.20.1.011. 
+        """
+        
+        # Set constants
+        tol = 1e-4
+        delta_perc = 0.001
+        
+        # Define solver function that will need to equal zero for Kepler 
+        # to be exact to sgp4 TLE
+        def sgpsolver(para,tle):
+            
+            # Set basic TLE
+            s_tle = tle[0]
+            t_tle = tle[1]
+            t_tle = t_tle[:8] + '%8.4f' % para[2] + t_tle[16:]
+            t_tle =  t_tle[:17] + '%8.4f' % para[3] + t_tle[25:]
+            ecc = '%.7f' % para[1]
+            t_tle = t_tle[:26] + '' + ecc.lstrip('0').lstrip('.') + t_tle[33:]
+            t_tle = t_tle[:34] + '%8.4f' % para[4] + t_tle[42:]
+            t_tle = t_tle[:43] + '%8.4f' % para[5] + t_tle[51:]
+            t_tle = t_tle[:52] + '%11.8f' % para[0] + t_tle[63:]
+            
+            # Set up satellite object
+            sat = Satrec.twoline2rv(s_tle, t_tle)
+            
+            # Run SGP4 propagation with time difference as zero
+            _,r,v = sat.sgp4_tsince(0.0)
+            
+            # Calculate tolerance 
+            x = np.zeros(6)
+            x[0:3] = np.array(r)*1e3; x[3:6] = np.array(v)*1e3
+            return x
+        
+        # Set up iterative solver loop
+        para = self.para
+        deltay = 1.0
+        while np.linalg.norm(deltay) > tol:
+            
+            # Build Jacobian using forward difference quotient
+            M = np.zeros((6,6))
+            f = sgpsolver(para,self.tle_str)
+            for i in range(0,6): 
+                delta_para = para.copy()
+                delta_para[i] = para[i] + delta_perc*para[i]
+                deltaf = sgpsolver(delta_para,self.tle_str)
+                M[:,i] = (deltaf - f)/(delta_perc*para[i])
+        
+            # Calculate iteration
+            Minv = np.linalg.inv(M)
+            deltax = self.x0 - f 
+            deltay = Minv@deltax
+            para = para + deltay
+        
+        # Set parameter
+        # [n_motion, ecc, inc, raan, aop, M_anom]
+        self.para = para
           
         return
     
