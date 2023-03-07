@@ -24,38 +24,19 @@ Code provides the following features:
 3. Dependencies
     - This code is developed and tested on Python3. There is a number of class dependencies:
        - numpy
-        - pandas
-        - pyatmos
-        - spiceypy
-        - numdifftools
-        - scipy
-        - pyshtools
-        - sgp4
+       - pandas
+       - pyatmos
+       - spiceypy
+       - numdifftools
+       - scipy
+       - pyshtools
+       - sgp4
+
+    - These may be simply installed using: `pip3 install numpy pandas pyatmos spiceypy numdifftools scipy pyshtools sgp4`
 
 4. How to use
-    - Make an instance of the `BatchEstimator` class 
-
-How to run
-----------
-
-This code is developed and tested on Python3. There is a number of class dependencies:
-* numpy
-* pandas
-* pyatmos
-* spiceypy
-* numdifftools
-* scipy
-* pyshtools
-* sgp4
-
-These may be simply installed using:
-
-`pip3 install numpy pandas pyatmos spiceypy numdifftools scipy pyshtools sgp4`
-
-An example file is included  _main_example.py_  that can be run to demonstrate use of the BlockEstimator class.
-
-
-
-Each file must be downloaded and placed into the kernel folder before running. The location is set using  _batch_estimator.tm_ .
-
-Files are usually contained in the  _data_  folder.
+    - Make an instance of the `BatchEstimator` class by `batch_estimator = BatchEstimator.BatchEstimator()`.
+    - Read a TLE sample of the spacecraft, perhaps from Celestrack or another source, specifying the string using `batch_estimator.read_tle(tle_string)`.
+    - Read the GPS data file, specifying filepath, using `batch_estimator.read_gps_data(filepath)`.
+    - Estimate the orbit by the GPS data using an SGP4 propagator estimate, `batch_estimator.estimate_batch_orbit_sgp4()`
+    - To retrieve the new TLE string, use `tle_string = batch_estimator.write_to_tle()`.

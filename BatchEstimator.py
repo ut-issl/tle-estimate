@@ -431,10 +431,7 @@ class BatchEstimator:
     
     def estimate_batch_orbit_sgp4(self):
         """!@brief  Calculates the batch orbit estimates using SVD from a set of position and
-                    velocity measurements
-                    Reference:
-                    Gill, E., Montenbruck, O. (2000). Satellite orbits: models, 
-                    methods, and applications. Germany: Springer Berlin Heidelberg.
+                    velocity measurements, where the SGP4 propagator is used.
             
             @return success result or return error code of integration tool
         """
