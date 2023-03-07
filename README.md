@@ -40,3 +40,38 @@ Code provides the following features:
     - Read the GPS data file, specifying filepath, using `batch_estimator.read_gps_data(filepath)`.
     - Estimate the orbit by the GPS data using an SGP4 propagator estimate, `batch_estimator.estimate_batch_orbit_sgp4()`
     - To retrieve the new TLE string, use `tle_string = batch_estimator.write_to_tle()`.
+    
+    
+## 2. Algorithm Details
+
+1. 
+
+
+## 3. Software Verification
+
+1. Orbit estimate by SGP4 propagated truth
+    1. Overview
+        - Propagate a sample set of TLE using SGP4. The sample set of TLE is:
+          ``1 55072U 23001BR  23040.15743944  .00016529  00000+0  91057-3 0  9998``
+          ``2 55072  97.5013 101.7243 0016943  94.7500 265.5667 15.13962877  5687``
+        - Satellite measurements are taken every 10 s for 1000 samples, with a noise of 10 m in each GPS receiver measurement.
+        - Introduce measurements to the `BatchEstimator` as a supposed GPS measurement dataset.
+        - Estimate the batch orbit by SGP4.
+        - Compare both the estimated TLE and the error difference.
+    
+    2. Results
+        - The estimated TLE code.
+        ``1 55072U 23001BR  23040.15743944  .00016529  00000+0  91057-3 0  9998``
+        ``2 55072  97.5013 101.7243 0016943  94.7495 265.5671 15.13962885  5684``
+    
+        - Calculated position error by the SGP4 sample data to the estimated position by the newly calculated data.
+        <img src="./figs/sgp4_position_error.png" style="zoom: 90%;" />
+        
+        - Calculated velocity error by the SGP4 sample data to the estimated position by the newly calculated data.
+        <img src="./figs/sgp4_velocity_error.png" style="zoom: 90%;" />
+      
+
+
+
+
+
