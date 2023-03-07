@@ -17,6 +17,7 @@ import numdifftools as nd
 import scipy as sp
 import pyshtools as pysh
 from sgp4.api import Satrec
+from sgp4.conveniences import jday_datetime
 
 # Global Constants
 DEBUG = 1 # mode of operation (0 = normal, 1 = debug)
@@ -102,7 +103,7 @@ class BatchEstimator:
         """
         
         # Set constants
-        GPS_EPOCH = pd.Timestamp('1980-01-06 00:00:00.0000',unit='ns')
+        GPS_EPOCH = pd.Timestamp('1980-01-06 00:00:00.0000',unit='ns',tz='utc')
         
         # Open the gps data file
         gps_data = open(filename)
@@ -164,7 +165,7 @@ class BatchEstimator:
         
         # Reduce data sets to minimum number
         self.rcv_time = self.rcv_time[:self.obs_num]
-        self.rcv_time = pd.to_datetime(self.rcv_time,yearfirst=True,unit='ns')
+        self.rcv_time = pd.to_datetime(self.rcv_time,yearfirst=True,unit='ns',utc=True)
         self.gps_week = self.gps_week[:self.obs_num]
         self.gps_msec = self.gps_msec[:self.obs_num]
         self.tlm_received = self.tlm_received[:self.obs_num]
@@ -428,6 +429,107 @@ class BatchEstimator:
         
         return 1
     
+    def estimate_batch_orbit_sgp4(self):
+        """!@brief  Calculates the batch orbit estimates using SVD from a set of position and
+                    velocity measurements
+                    Reference:
+                    Gill, E., Montenbruck, O. (2000). Satellite orbits: models, 
+                    methods, and applications. Germany: Springer Berlin Heidelberg.
+            
+            @return success result or return error code of integration tool
+        """
+        
+        # Set optimisation parameters
+        tol = 1e-3
+        delta_perc = 0.001
+        max_iter = 100
+        
+        # Define solver function that will need to equal zero for Kepler 
+        # to be exact to sgp4 TLE
+        def sgpsolver(para,tle,time):
+            
+            # Set basic TLE
+            s_tle = tle.split('\n')[0]
+            t_tle = tle.split('\n')[1]
+            t_tle = t_tle[:8] + '%8.4f' % para[2] + t_tle[16:]
+            t_tle =  t_tle[:17] + '%8.4f' % para[3] + t_tle[25:]
+            ecc = '%.7f' % para[1]
+            t_tle = t_tle[:26] + '' + ecc.lstrip('0').lstrip('.') + t_tle[33:]
+            t_tle = t_tle[:34] + '%8.4f' % para[4] + t_tle[42:]
+            t_tle = t_tle[:43] + '%8.4f' % para[5] + t_tle[51:]
+            t_tle = t_tle[:52] + '%11.8f' % para[0] + t_tle[63:]
+            
+            # Set up satellite object
+            sat = Satrec.twoline2rv(s_tle, t_tle)
+            
+            # Run SGP4 propagation with time difference as zero
+            jd,fr = jday_datetime(time)
+            _,r,v = sat.sgp4(jd,fr)
+            
+            # Calculate tolerance 
+            x = np.zeros(6)
+            x[0:3] = np.array(r)*1e3; x[3:6] = np.array(v)*1e3
+            return x
+                
+        # Initialise Kepler parameters
+        et = spice.datetime2et(self.time[0])
+        rot = spice.sxform('ITRF93','J2000',et)
+        self.x0 = rot@self.states[:,0]
+        self.t0 = self.time[0]
+        self.state_to_kepler()
+        self.write_to_tle()
+        self.state_to_kepler_sgp4()
+        self.write_to_tle()
+    
+        # Set up estimation matrices
+        H = np.empty((6*self.obs_num,6))
+        dz = np.empty((6*self.obs_num,1))
+
+        # Build the estimation operation
+        para = self.para.copy()
+        deltay = 1.0
+        iter_count = 0
+        while np.linalg.norm(deltay) > tol and max_iter > iter_count:
+            for i in range(self.obs_num):
+                
+                # Transform measured state to the ECI/J2000 frame
+                et = spice.datetime2et(self.time[i])
+                rot = spice.sxform('ITRF93','J2000',et)
+                x = rot@np.reshape(self.states[:,i],(6,1))
+                
+                # Calculate propagated state x approximate by numerical integration
+                M = np.zeros((6,6))
+                f = sgpsolver(para,self.tle_str,self.time[i])
+                for j in range(0,6): 
+                    delta_para = para.copy()
+                    delta_para[j] = para[j] + delta_perc*para[j]
+                    deltaf = sgpsolver(delta_para,self.tle_str,self.time[i])
+                    M[:,j] = (deltaf - f)/(delta_perc*para[j])
+        
+                # Contribute this to H and z vectors
+                dz[i*6:(i*6+6),:] = x - f.reshape((6,1))
+                H[i*6:(i*6+6),:] = M
+                
+            # Calculate SVD estimation
+            U,D,V = sp.linalg.svd(H,full_matrices=False)
+            D = np.diag(D)
+            deltay = V.T@sp.linalg.inv(D)@U.T@dz
+            para = para + deltay.reshape(-1)
+            
+            # Check if all terms are within bounds
+            if para[1] > 1 or para[1] < 0: para[1] = self.para[1]
+            para[2] = para[2] % 360; para[3] = para[3] % 360
+            para[4] = para[4] % 360; para[5] = para[5] % 360
+ 
+            iter_count = iter_count + 1
+
+        
+        self.t0 = self.time[0]
+        self.para = para
+        self.write_to_tle()
+        
+        return 1
+    
     def state_to_kepler(self):
         """!@brief Transform ECI position and velocity to Kepler orbital parameters.
         """
@@ -504,11 +606,11 @@ class BatchEstimator:
         
         # Define solver function that will need to equal zero for Kepler 
         # to be exact to sgp4 TLE
-        def sgpsolver(para,tle):
+        def sgpsolver(para,tle,time):
             
             # Set basic TLE
-            s_tle = tle[0]
-            t_tle = tle[1]
+            s_tle = tle.split('\n')[0]
+            t_tle = tle.split('\n')[1]
             t_tle = t_tle[:8] + '%8.4f' % para[2] + t_tle[16:]
             t_tle =  t_tle[:17] + '%8.4f' % para[3] + t_tle[25:]
             ecc = '%.7f' % para[1]
@@ -518,10 +620,11 @@ class BatchEstimator:
             t_tle = t_tle[:52] + '%11.8f' % para[0] + t_tle[63:]
             
             # Set up satellite object
+            jd,fr = jday_datetime(time)
             sat = Satrec.twoline2rv(s_tle, t_tle)
             
             # Run SGP4 propagation with time difference as zero
-            _,r,v = sat.sgp4_tsince(0.0)
+            _,r,v = sat.sgp4(jd,fr)
             
             # Calculate tolerance 
             x = np.zeros(6)
@@ -529,18 +632,18 @@ class BatchEstimator:
             return x
         
         # Set up iterative solver loop
-        para = self.para
+        para = self.para.copy()
         deltay = 1.0
         iter_count = 0
         while np.linalg.norm(deltay) > tol and max_iter > iter_count:
             
             # Build Jacobian using forward difference quotient
             M = np.zeros((6,6))
-            f = sgpsolver(para,self.tle_str)
+            f = sgpsolver(para,self.tle_str,self.t0)
             for i in range(0,6): 
                 delta_para = para.copy()
                 delta_para[i] = para[i] + delta_perc*para[i]
-                deltaf = sgpsolver(delta_para,self.tle_str)
+                deltaf = sgpsolver(delta_para,self.tle_str,self.t0)
                 M[:,i] = (deltaf - f)/(delta_perc*para[i])
         
             # Calculate iteration
@@ -548,6 +651,11 @@ class BatchEstimator:
             deltax = self.x0 - f 
             deltay = Minv@deltax
             para = para + deltay
+            
+            # Check if all terms are within bounds
+            if para[1] > 1 or para[1] < 0: para[1] = self.para[1]
+            para[2] = para[2] % 360; para[3] = para[3] % 360
+            para[4] = para[4] % 360; para[5] = para[5] % 360
             
             iter_count = iter_count + 1
         
@@ -558,7 +666,7 @@ class BatchEstimator:
         return
     
     
-    def read_tle(self,tle):
+    def read_tle(self,tle_str):
         """!@brief Read and stores the parameters extracted from a TLE string.
         
             @para    tle    TLE string
@@ -567,7 +675,7 @@ class BatchEstimator:
         """
         
         # Split tle lines
-        tle = tle.split('\n')
+        tle = tle_str.split('\n')
         
         # Check tle is first row
         if tle[0][0:1] != '1': return 0
@@ -601,7 +709,7 @@ class BatchEstimator:
         self.para = [n_motion, ecc, inc, raan, aop, M_anom]
         
         # Store string parameter in class
-        self.tle_str = tle
+        self.tle_str = tle_str
         
         return 1
     
@@ -680,6 +788,8 @@ class BatchEstimator:
         tle_2 = tle_2 + '%1d' % checksum
         tle_2 = tle_2 +'\n'
         tle = tle + tle_2
+        
+        self.tle_str = tle
         
         return tle
         
