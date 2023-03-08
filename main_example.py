@@ -29,6 +29,7 @@ if code == 0: print('Unsuccessful in reading GPS data containing file'); exit()
 
 # Estimate orbit based on GPS data
 code = batch_estimator.estimate_batch_orbit_sgp4()
+# code = batch_estimator.estimate_batch_orbit('ignore','j2')
 if code < 0: print('Failed integration due to error (%d)' % code); exit()
 
 # Write calculated parameters to TLE

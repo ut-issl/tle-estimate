@@ -27,8 +27,6 @@ GRAV = 6.6743e-11 # gravitational constant [m3/kg/s2]
 M_EARTH = 5.972e24 # mass of Earth [kg]
 F_EARTH = 0.00335279499764807 # Earth flattening constant
 MIN_VIS_SATS = 5 # minimum number of visible GPS satellites to include measurment
-MODEL_GRAV = 'J2' 
-MODEL_ATMOS = 'ignore'
 
 class BatchEstimator:
 
@@ -340,15 +338,22 @@ class BatchEstimator:
         
         return a,dadr,dadv
     
-    def estimate_batch_orbit(self):
+    def estimate_batch_orbit(self,model_atmos,model_grav):
         """!@brief  Calculates the batch orbit estimates using SVD from a set of position and
                     velocity measurements
                     Reference:
                     Gill, E., Montenbruck, O. (2000). Satellite orbits: models, 
                     methods, and applications. Germany: Springer Berlin Heidelberg.
+                    
+            @param  model_atmos   atmospheric model setting for atmospheric density ('expo','j2008','ignore')
+            @param  model_grav    gravitational potential setting ('j2','spherical','point')
             
             @return success result or return error code of integration tool
         """
+        
+        # Set model parameters to only those working - TODO
+        model_atmos = 'ignore'
+        if model_grav == 'spherical': model_grav = 'j2'
         
         # Assume initial position and velocity as GPS estimate
         et = spice.datetime2et(self.time[0])
@@ -380,8 +385,8 @@ class BatchEstimator:
                 # Calculate propagated state x approximate by numerical integration
                 def xfun(t,x,t0):
                     time = t0 + pd.to_timedelta(t, unit='sec')
-                    a_e,_ = self.earth_gravity(time,x[0:3],MODEL_GRAV)
-                    a_atm,_,_ = self.atmospheric_drag(time,x[0:3],x[3:6],MODEL_ATMOS)
+                    a_e,_ = self.earth_gravity(time,x[0:3],model_grav)
+                    a_atm,_,_ = self.atmospheric_drag(time,x[0:3],x[3:6],model_atmos)
                     a = a_e + a_atm
                     return np.concatenate((x[3:6], a)) 
                 integ = sp.integrate.ode(xfun).set_integrator('vode')
@@ -391,8 +396,8 @@ class BatchEstimator:
                     return integ.get_return_code()
                 
                 # Calculate acting forces
-                _,dadr_e = self.earth_gravity(self.time[0],x0_original[0:3],MODEL_GRAV)
-                _,dadr_atm,dadv_atm = self.atmospheric_drag(self.time[i],x0_original[0:3],x0_original[3:6],MODEL_ATMOS)
+                _,dadr_e = self.earth_gravity(self.time[0],x0_original[0:3],model_grav)
+                _,dadr_atm,dadv_atm = self.atmospheric_drag(self.time[i],x0_original[0:3],x0_original[3:6],model_atmos)
                 
                 # Calculate F matrix
                 F = np.block([[np.zeros((3,3)), np.eye(3)],
@@ -426,7 +431,10 @@ class BatchEstimator:
 
         
         self.t0 = self.time[0]
-        
+        self.state_to_kepler()
+        self.state_to_kepler_sgp4()
+        self.write_to_tle()
+                
         return 1
     
     def estimate_batch_orbit_sgp4(self):

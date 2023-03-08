@@ -71,6 +71,12 @@ Code provides the following features:
         <img src="./figs/sgp4_velocity_error.png" style="zoom: 90%;" />
       
 
+## Notes
+1. Some improvements are still be made in the code. These include:
+    - Fixing fidelity to the standard propagator (non-SGP4), where the atmosphere drag 'expo' and 'jb2008' and and spherical harmonic gravtitational acceleration 'spherical' models are not yet working.
+    - Adding optimisation of the atmospheric drag b-star as a parameter in the batch estimator.
+
+2. The function `estimate_batch_orbit_sgp4` performs much better than `estimate_batch_orbit` as it the SGP4 model is better developed than using newtonian based propagation. Currently, the `estimate_batch_orbit_sgp4` code should be preferenced.
 
 
 
