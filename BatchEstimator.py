@@ -18,6 +18,7 @@ import scipy as sp
 import pyshtools as pysh
 from sgp4.api import Satrec
 from sgp4.conveniences import jday_datetime
+from emcee.tests.unit import test_autocorr
 
 # Global Constants
 DEBUG = 1 # mode of operation (0 = normal, 1 = debug)
@@ -27,6 +28,7 @@ GRAV = 6.6743e-11 # gravitational constant [m3/kg/s2]
 M_EARTH = 5.972e24 # mass of Earth [kg]
 F_EARTH = 0.00335279499764807 # Earth flattening constant
 MIN_VIS_SATS = 5 # minimum number of visible GPS satellites to include measurment
+GPS_LEAP_SECONDS = 18 # number of leap seconds
 
 class BatchEstimator:
 
@@ -131,6 +133,21 @@ class BatchEstimator:
             
             data_set = data_set.split(',')
             
+            # Check telemetry validity
+            if self.obs_num != 0:
+                if (np.float64(data_set[header_loc[3]]) - self.tlm_received[self.obs_num-1]) > 200:
+                    self.obs_num = self.obs_num - 1
+                    data_set = gps_data.readline()
+                    continue
+            
+            # Check GPS dataset validity
+            if np.int(data_set[header_loc[4]]) < MIN_VIS_SATS or \
+                    np.int(data_set[header_loc[4]]) > 64 or \
+                    np.int(data_set[header_loc[1]]) > 3000 or \
+                    np.int(data_set[header_loc[2]]) > 6.048e8: 
+                data_set = gps_data.readline()
+                continue
+            
             # Time of observation            
             self.rcv_time[self.obs_num] = data_set[header_loc[0]]
                     
@@ -157,9 +174,12 @@ class BatchEstimator:
             self.states[5,self.obs_num] = data_set[header_loc[10]]
             
             # Move to the next line
-            if self.nsats[self.obs_num] > MIN_VIS_SATS:
-                self.obs_num = self.obs_num + 1
+            # if self.nsats[self.obs_num] > MIN_VIS_SATS:
+            #     
+            self.obs_num = self.obs_num + 1
             data_set = gps_data.readline()
+        
+        if self.obs_num == 0: return 0
         
         # Reduce data sets to minimum number
         self.rcv_time = self.rcv_time[:self.obs_num]
@@ -176,9 +196,10 @@ class BatchEstimator:
         if weekPeriod*2048 > self.gps_week[0]:
             self.gps_week = self.gps_week + weekPeriod*2048
         
-        # Convert GPS week and msec to measurement time
+        # Convert GPS week and msec to UTC measurement time
         self.time = GPS_EPOCH + pd.to_timedelta(self.gps_week,unit='W') + \
-                    pd.to_timedelta(self.gps_msec,unit='ms')
+                    pd.to_timedelta(self.gps_msec,unit='ms') - \
+                    pd.to_timedelta(GPS_LEAP_SECONDS,unit='s')
         
         return 1
     
@@ -483,8 +504,8 @@ class BatchEstimator:
         self.t0 = self.time[0]
         self.state_to_kepler()
         self.write_to_tle()
-        self.state_to_kepler_sgp4()
-        self.write_to_tle()
+        # self.state_to_kepler_sgp4()
+        # self.write_to_tle()
     
         # Set up estimation matrices
         H = np.empty((6*self.obs_num,6))
