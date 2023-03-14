@@ -132,14 +132,7 @@ class BatchEstimator:
         while data_set:
             
             data_set = data_set.split(',')
-            
-            # Check telemetry validity
-            if self.obs_num != 0:
-                if (np.float64(data_set[header_loc[3]]) - self.tlm_received[self.obs_num-1]) > 200:
-                    self.obs_num = self.obs_num - 1
-                    data_set = gps_data.readline()
-                    continue
-            
+                
             # Check GPS dataset validity
             if np.int(data_set[header_loc[4]]) < MIN_VIS_SATS or \
                     np.int(data_set[header_loc[4]]) > 64 or \
@@ -147,6 +140,13 @@ class BatchEstimator:
                     np.int(data_set[header_loc[2]]) > 6.048e8: 
                 data_set = gps_data.readline()
                 continue
+            
+            # Check telemetry validity
+            if self.obs_num != 0:
+                if (np.float64(data_set[header_loc[3]]) - self.tlm_received[self.obs_num-1]) > 200:
+                    self.obs_num = self.obs_num - 1
+                    data_set = gps_data.readline()
+                    continue
             
             # Time of observation            
             self.rcv_time[self.obs_num] = data_set[header_loc[0]]
@@ -174,8 +174,6 @@ class BatchEstimator:
             self.states[5,self.obs_num] = data_set[header_loc[10]]
             
             # Move to the next line
-            # if self.nsats[self.obs_num] > MIN_VIS_SATS:
-            #     
             self.obs_num = self.obs_num + 1
             data_set = gps_data.readline()
         
@@ -504,8 +502,6 @@ class BatchEstimator:
         self.t0 = self.time[0]
         self.state_to_kepler()
         self.write_to_tle()
-        # self.state_to_kepler_sgp4()
-        # self.write_to_tle()
     
         # Set up estimation matrices
         H = np.empty((6*self.obs_num,6))
