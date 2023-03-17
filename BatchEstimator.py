@@ -18,7 +18,6 @@ import scipy as sp
 import pyshtools as pysh
 from sgp4.api import Satrec
 from sgp4.conveniences import jday_datetime
-from emcee.tests.unit import test_autocorr
 
 # Global Constants
 DEBUG = 1 # mode of operation (0 = normal, 1 = debug)
@@ -552,6 +551,105 @@ class BatchEstimator:
         
         return 1
     
+    def estimate_batch_orbit_sgp4_bstar(self):
+        """!@brief  Calculates the batch orbit estimates using SVD from a set of position and
+                    velocity measurements, where the SGP4 propagator is used.
+            
+            @return success result or return error code of integration tool
+        """
+        
+        # Set optimisation parameters
+        tol = 1e-3
+        delta_perc = 0.001
+        max_iter = 100
+        
+        # Define solver function that will need to equal zero for Kepler 
+        # to be exact to sgp4 TLE
+        def sgpsolver(para,tle,time):
+            
+            # Set basic TLE
+            s_tle = tle.split('\n')[0]
+            s_tle = s_tle[:53] + self.convert_sci(para[6]) + s_tle[61:]
+            t_tle = tle.split('\n')[1]
+            t_tle = t_tle[:8] + '%8.4f' % para[2] + t_tle[16:]
+            t_tle =  t_tle[:17] + '%8.4f' % para[3] + t_tle[25:]
+            ecc = '%.7f' % para[1]
+            t_tle = t_tle[:26] + '' + ecc.lstrip('0').lstrip('.') + t_tle[33:]
+            t_tle = t_tle[:34] + '%8.4f' % para[4] + t_tle[42:]
+            t_tle = t_tle[:43] + '%8.4f' % para[5] + t_tle[51:]
+            t_tle = t_tle[:52] + '%11.8f' % para[0] + t_tle[63:]
+            
+            # Set up satellite object
+            sat = Satrec.twoline2rv(s_tle, t_tle)
+            
+            # Run SGP4 propagation with time difference as zero
+            jd,fr = jday_datetime(time)
+            _,r,v = sat.sgp4(jd,fr)
+            
+            # Calculate tolerance 
+            x = np.zeros(6)
+            x[0:3] = np.array(r)*1e3; x[3:6] = np.array(v)*1e3
+            return x
+                
+        # Initialise Kepler parameters
+        et = spice.datetime2et(self.time[0])
+        rot = spice.sxform('ITRF93','J2000',et)
+        self.x0 = rot@self.states[:,0]
+        self.t0 = self.time[0]
+        self.state_to_kepler()
+        self.write_to_tle()
+    
+        # Set up estimation matrices
+        H = np.empty((6*self.obs_num,7))
+        dz = np.empty((6*self.obs_num,1))
+
+        # Build the estimation operation
+        y = np.array(self.para.copy())
+        y = np.append(y,self.bstar)
+        deltay = 1.0
+        iter_count = 0
+        while np.linalg.norm(deltay) > tol and max_iter > iter_count:
+            for i in range(self.obs_num):
+                
+                # Transform measured state to the ECI/J2000 frame
+                et = spice.datetime2et(self.time[i])
+                rot = spice.sxform('ITRF93','J2000',et)
+                x = rot@np.reshape(self.states[:,i],(6,1))
+                
+                # Calculate propagated state x approximate by numerical integration
+                M = np.zeros((6,7))
+                f = sgpsolver(y,self.tle_str,self.time[i])
+                for j in range(0,7): 
+                    delta_y = y.copy()
+                    delta_y[j] = y[j] + delta_perc*y[j]
+                    deltaf = sgpsolver(delta_y,self.tle_str,self.time[i])
+                    M[:,j] = (deltaf - f)/(delta_perc*y[j])
+        
+                # Contribute this to H and z vectors
+                dz[i*6:(i*6+6),:] = x - f.reshape((6,1))
+                H[i*6:(i*6+6),:] = M
+                
+            # Calculate SVD estimation
+            U,D,V = sp.linalg.svd(H,full_matrices=False)
+            D = np.diag(D)
+            deltay = V.T@sp.linalg.inv(D)@U.T@dz
+            y = y + deltay.reshape(-1)
+            
+            # Check if all terms are within bounds
+            if y[1] > 1 or y[1] < 0: y[1] = self.para[1]
+            y[2] = y[2] % 360; y[3] = y[3] % 360
+            y[4] = y[4] % 360; y[5] = y[5] % 360
+ 
+            iter_count = iter_count + 1
+
+        
+        self.t0 = self.time[0]
+        self.para = y[0:6]
+        self.bstar = y[6]
+        self.write_to_tle()
+        
+        return 1
+    
     def state_to_kepler(self):
         """!@brief Transform ECI position and velocity to Kepler orbital parameters.
         """
@@ -742,12 +840,12 @@ class BatchEstimator:
         
         @return    String contain TLE format based scientific notation-based number
         """
-        sign = '-' if self.tle_nddot < 0 else ' '
+        sign = '-' if n < 0 else ' '
         if n == 0.0: return ' 00000+0'
-        ppow = np.floor(np.log10(n))
+        ppow = np.floor(np.log10(np.abs(n)))
         if ppow < -9: return ' 00000+0'
         pow_str = '%1d' % (np.abs(ppow)-1)
-        pow_sign = '-' if ppow < 0 else ' '
+        pow_sign = '-' if ppow < 0 else '+'
         dec = (np.abs(n)/10**ppow)*10**-1
         dec_str = '%5.5f' % dec
         
