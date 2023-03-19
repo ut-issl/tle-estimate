@@ -3,7 +3,7 @@ from sgp4.api import Satrec
 from sgp4.conveniences import jday_datetime
 import matplotlib.pyplot as plt
 import numpy as np
-
+import pandas as pd
 # Set times and dates
 
 # GPS ON PASS no 190
@@ -15,8 +15,8 @@ import numpy as np
 # tle_celes =  "1 55072U 23001BR  23053.93441113  .00010900  00000+0  59575-3 0  9997\n2 55072  97.4989 115.2981 0016335  49.7572 121.6134 15.14352866  7765"
 
 # GPS ON PASS no 204
-filename = "data/AOBC.AOBC_HK_COMPO.PRIVATE.NOT_REALTIME_#204ON.csv"
-tle_celes =  "1 55072U 23001BR  23043.06547401  .00016320  00000+0  89684-3 0  9993\n2 55072  97.5006 104.5891 0016738  85.4079 274.9064 15.14056635  6121"
+# filename = "data/AOBC.AOBC_HK_COMPO.PRIVATE.NOT_REALTIME_#204ON.csv"
+# tle_celes =  "1 55072U 23001BR  23043.06547401  .00016320  00000+0  89684-3 0  9993\n2 55072  97.5006 104.5891 0016738  85.4079 274.9064 15.14056635  6121"
 
 # GPS ON PASS no 220
 # filename = "data/AOBC.AOBC_HK_COMPO.PRIVATE.NOT_REALTIME_#220ON.csv"
@@ -35,8 +35,8 @@ tle_celes =  "1 55072U 23001BR  23043.06547401  .00016320  00000+0  89684-3 0  9
 # tle_celes =  "1 55072U 23001BR  23059.41090469  .00017025  00000+0  92399-3 0  9996\n2 55072  97.4970 120.6947 0015496  32.8711  97.0701 15.14508086  8597"
 
 # GPS ON PASS no 274 - thrust maneouvre on
-# filename = "data/AOBC.AOBC_HK_COMPO.PRIVATE.NOT_REALTIME_#274ON.csv"
-# tle_celes =  "1 55072U 23001BR  23061.66111434  .00014480  00000+0  78517-3 0  9990\n2 55072  97.4979 122.9125 0015193  25.0534 126.1123 15.14581885  8938"
+filename = "data/AOBC.AOBC_HK_COMPO.PRIVATE.NOT_REALTIME_#274ON.csv"
+tle_celes =  "1 55072U 23001BR  23061.66111434  .00014480  00000+0  78517-3 0  9990\n2 55072  97.4979 122.9125 0015193  25.0534 126.1123 15.14581885  8938"
 
 # Read Celestrack based TLE code
 s_celes = tle_celes.split('\n')[0]
@@ -70,22 +70,22 @@ sat_celes = Satrec.twoline2rv(s_celes, t_celes)
 sat = Satrec.twoline2rv(s, t)
 num_states = batch_estimator.obs_num
 pos_diff = np.zeros(batch_estimator.obs_num); vel_diff = np.zeros(num_states)
+time = np.zeros(batch_estimator.obs_num)
 for i in range(0,num_states):
     jd,fr = jday_datetime(batch_estimator.time[i])
     _,r_celes,v_celes = sat_celes.sgp4(jd, fr)
     _,r,v = sat.sgp4(jd, fr)
     pos_diff[i] = np.linalg.norm(np.array(r)-np.array(r_celes))
     vel_diff[i] = np.linalg.norm(np.array(v)-np.array(v_celes))
+    time[i] = pd.Timedelta(batch_estimator.time[i] - batch_estimator.time[0]).total_seconds()
     
 # Plot difference
-plt.plot(pos_diff)
+plt.plot(time/60,pos_diff)
 plt.ylabel('Position Difference [km]')
-plt.xlabel('Observation Number')
+plt.xlabel('Time since epoch [min]')
 plt.show()
-
-# Plot difference
-plt.plot(vel_diff*1e3)
+plt.plot(time/60,vel_diff*1e3)
 plt.ylabel('Velocity Difference [m/s]')
-plt.xlabel('Observation Number')
+plt.xlabel('Time since epoch [min]')
 plt.show()
 

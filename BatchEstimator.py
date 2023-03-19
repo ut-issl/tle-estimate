@@ -28,6 +28,9 @@ M_EARTH = 5.972e24 # mass of Earth [kg]
 F_EARTH = 0.00335279499764807 # Earth flattening constant
 MIN_VIS_SATS = 5 # minimum number of visible GPS satellites to include measurment
 GPS_LEAP_SECONDS = 18 # number of leap seconds
+SIGMA_GPS = 10000 # GPS receiver noise
+INPUT_MULIPLIER = 4.5 # data editing input multiplier
+USE_DATA_EDITING = 0 # data editing setting (0 = off, 1 = on)
 
 class BatchEstimator:
 
@@ -45,6 +48,8 @@ class BatchEstimator:
         
         # Read spherical harmonic file
         self.clm = pysh.datasets.Earth.EGM2008(2)
+        
+        
         
         if DEBUG:
             print("Initializing program.")
@@ -489,47 +494,83 @@ class BatchEstimator:
             jd,fr = jday_datetime(time)
             _,r,v = sat.sgp4(jd,fr)
             
-            # Calculate tolerance 
+            # Calculate state 
             x = np.zeros(6)
             x[0:3] = np.array(r)*1e3; x[3:6] = np.array(v)*1e3
             return x
                 
         # Initialise Kepler parameters
-        et = spice.datetime2et(self.time[0])
-        rot = spice.sxform('ITRF93','J2000',et)
+        # et = spice.datetime2et(self.time[0])
+        # rot = spice.sxform('ITRF93','J2000',et)
+        jd,fr = jday_datetime(self.time[0])
+        rot = self.ecef2eci(jd, fr)
         self.x0 = rot@self.states[:,0]
         self.t0 = self.time[0]
         self.state_to_kepler()
         self.write_to_tle()
-    
-        # Set up estimation matrices
-        H = np.empty((6*self.obs_num,6))
-        dz = np.empty((6*self.obs_num,1))
 
         # Build the estimation operation
         para = self.para.copy()
         deltay = 1.0
         iter_count = 0
+        E_R = 200000
         while np.linalg.norm(deltay) > tol and max_iter > iter_count:
+            
+            # Remove outliers
+            thresh = INPUT_MULIPLIER*E_R
+            valid = np.ones(self.obs_num)
+            x_err = np.empty(self.obs_num)
+            obs_num = 0
+            if USE_DATA_EDITING:
+                for i in range(self.obs_num):
+                                    
+                    # Transform measured state to the ECI/J2000 frame
+                    # et = spice.datetime2et(self.time[i])
+                    # rot = spice.sxform('ITRF93','J2000',et)
+                    jd,fr = jday_datetime(self.time[i])
+                    rot = self.ecef2eci(jd, fr)
+                    x = rot@np.reshape(self.states[:,i],(6,1))
+                
+                    # Calculate propagated state x
+                    f = sgpsolver(para,self.tle_str,self.time[i])
+                    x_err[i] = np.linalg.norm(x[0:3] - f[0:3].reshape((3,1)))
+                    if (x_err[i]/SIGMA_GPS) > thresh:
+                        valid[i] = 0
+                    else:
+                        obs_num = obs_num + 1
+                E_R = np.sqrt(np.sum(np.square(x_err))/obs_num)
+            else:
+                obs_num = self.obs_num
+    
+            # Generate measurement vector and matrix
+            H = np.empty((6*obs_num,6))
+            dz = np.empty((6*obs_num,1))
+            pos = 0
             for i in range(self.obs_num):
                 
-                # Transform measured state to the ECI/J2000 frame
-                et = spice.datetime2et(self.time[i])
-                rot = spice.sxform('ITRF93','J2000',et)
-                x = rot@np.reshape(self.states[:,i],(6,1))
+                if valid[i]:
+                    
+                    # Transform measured state to the ECI/J2000 frame
+                    # et = spice.datetime2et(self.time[i])
+                    # rot = spice.sxform('ITRF93','J2000',et)
+                    jd,fr = jday_datetime(self.time[i])
+                    rot = self.ecef2eci(jd, fr)
+                    x = rot@np.reshape(self.states[:,i],(6,1))
+                    
+                    # Calculate measurement vector
+                    f = sgpsolver(para,self.tle_str,self.time[i])
+                    dz[pos*6:(pos*6+6),:] = x - f.reshape((6,1))
                 
-                # Calculate propagated state x approximate by numerical integration
-                M = np.zeros((6,6))
-                f = sgpsolver(para,self.tle_str,self.time[i])
-                for j in range(0,6): 
-                    delta_para = para.copy()
-                    delta_para[j] = para[j] + delta_perc*para[j]
-                    deltaf = sgpsolver(delta_para,self.tle_str,self.time[i])
-                    M[:,j] = (deltaf - f)/(delta_perc*para[j])
-        
-                # Contribute this to H and z vectors
-                dz[i*6:(i*6+6),:] = x - f.reshape((6,1))
-                H[i*6:(i*6+6),:] = M
+                    # Calculate linealized SGP4 matrix
+                    M = np.zeros((6,6))
+                    for j in range(0,6): 
+                        delta_para = para.copy()
+                        delta_para[j] = para[j] + delta_perc*para[j]
+                        deltaf = sgpsolver(delta_para,self.tle_str,self.time[i])
+                        M[:,j] = (deltaf - f)/(delta_perc*para[j])
+                    H[pos*6:(pos*6+6),:] = M
+                    
+                    pos = pos + 1
                 
             # Calculate SVD estimation
             U,D,V = sp.linalg.svd(H,full_matrices=False)
@@ -1024,6 +1065,35 @@ class BatchEstimator:
         # Assign nonspherical gravity gradient
         return C
         
+    def ecef2eci(self,jd, fr):
+        """!@brief Calculates the ECEF to ECI rotation matrix according to the julian date
         
+        @para    jd   Julian date
+        @para    fr   fraction of day
+        
+        @return       rotation matrix
+        """
+        
+        # Earth angular velocity approximation [rad/s]
+        omega = 7.2921158553e-5
+        
+        # Calculate GMST angle
+        d = jd - 2451545.0
+        T = d/36525
+        GMST = 24110.54841 + 8640184.812866*T + 0.093104*T**2 - 0.0000062*T**3
+        theta = GMST*360/86400 + 360*fr
+        theta = theta*np.pi/180
+        
+        # Determine state matrix
+        R = [[np.cos(theta), -np.sin(theta), 0.],
+             [np.sin(theta), np.cos(theta), 0.],
+             [0., 0., 1.]]
+        R = np.array(R)
+        trans = [[0., -1., 0.],[1., 0., 0.],[0., 0., 0.]]
+        trans = np.array(trans)
+        dRdt = omega*trans@R
+        R = np.block([[R, np.zeros((3,3))],[dRdt, R]])
+        
+        return R
         
         
