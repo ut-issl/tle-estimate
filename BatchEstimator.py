@@ -21,16 +21,17 @@ from sgp4.conveniences import jday_datetime
 
 # Global Constants
 DEBUG = 1 # mode of operation (0 = normal, 1 = debug)
-MAX_OBS_NUM = 10000 # maximum number of GPS observations
+MAX_OBS_NUM = 50000 # maximum number of GPS observations
 R_EARTH = 6378137 # Earth radius [m]
 GRAV = 6.6743e-11 # gravitational constant [m3/kg/s2]
 M_EARTH = 5.972e24 # mass of Earth [kg]
 F_EARTH = 0.00335279499764807 # Earth flattening constant
 MIN_VIS_SATS = 5 # minimum number of visible GPS satellites to include measurment
 GPS_LEAP_SECONDS = 18 # number of leap seconds
-SIGMA_GPS = 10000 # GPS receiver noise
+SIGMA_GPS = 10 # GPS receiver noise
 INPUT_MULIPLIER = 4.5 # data editing input multiplier
 USE_DATA_EDITING = 0 # data editing setting (0 = off, 1 = on)
+NSTATES = 3
 
 class BatchEstimator:
 
@@ -49,7 +50,7 @@ class BatchEstimator:
         # Read spherical harmonic file
         self.clm = pysh.datasets.Earth.EGM2008(2)
         
-        
+        self.nstates = NSTATES
         
         if DEBUG:
             print("Initializing program.")
@@ -500,8 +501,6 @@ class BatchEstimator:
             return x
                 
         # Initialise Kepler parameters
-        # et = spice.datetime2et(self.time[0])
-        # rot = spice.sxform('ITRF93','J2000',et)
         jd,fr = jday_datetime(self.time[0])
         rot = self.ecef2eci(jd, fr)
         self.x0 = rot@self.states[:,0]
@@ -525,8 +524,6 @@ class BatchEstimator:
                 for i in range(self.obs_num):
                                     
                     # Transform measured state to the ECI/J2000 frame
-                    # et = spice.datetime2et(self.time[i])
-                    # rot = spice.sxform('ITRF93','J2000',et)
                     jd,fr = jday_datetime(self.time[i])
                     rot = self.ecef2eci(jd, fr)
                     x = rot@np.reshape(self.states[:,i],(6,1))
@@ -543,32 +540,31 @@ class BatchEstimator:
                 obs_num = self.obs_num
     
             # Generate measurement vector and matrix
-            H = np.empty((6*obs_num,6))
-            dz = np.empty((6*obs_num,1))
+            ns = self.nstates
+            H = np.empty((ns*obs_num,6))
+            dz = np.empty((ns*obs_num,1))
             pos = 0
             for i in range(self.obs_num):
                 
                 if valid[i]:
                     
                     # Transform measured state to the ECI/J2000 frame
-                    # et = spice.datetime2et(self.time[i])
-                    # rot = spice.sxform('ITRF93','J2000',et)
                     jd,fr = jday_datetime(self.time[i])
                     rot = self.ecef2eci(jd, fr)
                     x = rot@np.reshape(self.states[:,i],(6,1))
                     
                     # Calculate measurement vector
                     f = sgpsolver(para,self.tle_str,self.time[i])
-                    dz[pos*6:(pos*6+6),:] = x - f.reshape((6,1))
+                    dz[pos*ns:(pos*ns+ns),:] = x[0:ns] - f[0:ns].reshape((ns,1))
                 
                     # Calculate linealized SGP4 matrix
-                    M = np.zeros((6,6))
+                    M = np.zeros((ns,6))
                     for j in range(0,6): 
                         delta_para = para.copy()
                         delta_para[j] = para[j] + delta_perc*para[j]
                         deltaf = sgpsolver(delta_para,self.tle_str,self.time[i])
-                        M[:,j] = (deltaf - f)/(delta_perc*para[j])
-                    H[pos*6:(pos*6+6),:] = M
+                        M[:,j] = (deltaf[0:ns] - f[0:ns])/(delta_perc*para[j])
+                    H[pos*ns:(pos*ns+ns),:] = M
                     
                     pos = pos + 1
                 
