@@ -526,7 +526,6 @@ class BatchEstimator:
                                     
                     # Transform measured state to the ECI/J2000 frame
                     jd,fr = jday_datetime(self.time[i])
-                    # rot = self.ecef2eci(jd, fr)
                     rot = self.teme2itrf(jd, fr).T
                     x = rot@np.reshape(self.states[:,i],(6,1))
                 
@@ -1064,7 +1063,8 @@ class BatchEstimator:
         return C
         
     def ecef2eci(self,jd, fr):
-        """!@brief Calculates the ECEF to ECI rotation matrix according to the julian date
+        """!@brief Calculates the ECEF to ECI rotation matrix according to the julian date.
+                   No nutation or precession correction.
         
         @para    jd   Julian date
         @para    fr   fraction of day
@@ -1115,7 +1115,10 @@ class BatchEstimator:
         return rot
         
     def teme2itrf(self,jd, fr):
-        """!@brief Calculates the ECEF to ECI rotation matrix according to the julian date
+        """!@brief Calculates the TEME to ITRF rotation matrix according to the julian date.
+                   Vallado, D., Crawford, P., Hujsak, R. and Kelso, T.S., 2006, August. 
+                   Revisiting spacetrack report# 3. In AIAA/AAS Astrodynamics Specialist 
+                   Conference and Exhibit (p. 6753).
         
         @para    jd   Julian date
         @para    fr   fraction of day
