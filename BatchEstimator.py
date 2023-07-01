@@ -18,7 +18,8 @@ import scipy as sp
 import pyshtools as pysh
 from sgp4.api import Satrec
 from sgp4.conveniences import jday_datetime
-
+from astropy.coordinates.builtin_frames.utils import get_polar_motion
+from astropy.time import Time
 # Global Constants
 DEBUG = 1 # mode of operation (0 = normal, 1 = debug)
 MAX_OBS_NUM = 50000 # maximum number of GPS observations
@@ -42,10 +43,10 @@ class BatchEstimator:
         spice.furnsh('batch_estimator.tm')
         
         # Update celestrack file
-        self.swfile = pyatmos.download_sw_jb2008()
+        # self.swfile = pyatmos.download_sw_jb2008()
         
         # Assume BSTAR
-        self.bstar = 0.59575e-3 # TLE btar [R_EARTH-1]
+        self.bstar = 0.59575e-3 # TLE bstar [R_EARTH-1]
         
         # Read spherical harmonic file
         self.clm = pysh.datasets.Earth.EGM2008(2)
@@ -148,7 +149,7 @@ class BatchEstimator:
             
             # Check telemetry validity
             if self.obs_num != 0:
-                if (np.float64(data_set[header_loc[3]]) - self.tlm_received[self.obs_num-1]) > 200:
+                if (np.float64(data_set[header_loc[3]]) - self.tlm_received[self.obs_num-1]) > 1E7:
                     self.obs_num = self.obs_num - 1
                     data_set = gps_data.readline()
                     continue
@@ -502,7 +503,7 @@ class BatchEstimator:
                 
         # Initialise Kepler parameters
         jd,fr = jday_datetime(self.time[0])
-        rot = self.ecef2eci(jd, fr)
+        rot = self.teme2itrf(jd, fr).T
         self.x0 = rot@self.states[:,0]
         self.t0 = self.time[0]
         self.state_to_kepler()
@@ -525,7 +526,8 @@ class BatchEstimator:
                                     
                     # Transform measured state to the ECI/J2000 frame
                     jd,fr = jday_datetime(self.time[i])
-                    rot = self.ecef2eci(jd, fr)
+                    # rot = self.ecef2eci(jd, fr)
+                    rot = self.teme2itrf(jd, fr).T
                     x = rot@np.reshape(self.states[:,i],(6,1))
                 
                     # Calculate propagated state x
@@ -550,7 +552,7 @@ class BatchEstimator:
                     
                     # Transform measured state to the ECI/J2000 frame
                     jd,fr = jday_datetime(self.time[i])
-                    rot = self.ecef2eci(jd, fr)
+                    rot = self.teme2itrf(jd, fr).T
                     x = rot@np.reshape(self.states[:,i],(6,1))
                     
                     # Calculate measurement vector
@@ -1070,26 +1072,105 @@ class BatchEstimator:
         @return       rotation matrix
         """
         
+        def rotz(theta):
+            R = [[np.cos(theta), -np.sin(theta), 0.],
+                 [np.sin(theta), np.cos(theta), 0.],
+                 [0., 0., 1.]]
+            return np.array(R)
+        def roty(theta):
+            R = [[np.cos(theta),0.,np.sin(theta)],
+                 [0.,1.,0.],
+                 [-np.sin(theta),0.,np.cos(theta)]]
+            return np.array(R)
+        def rotx(theta):
+            R = [[1.,0.,0.],
+                 [0.,np.cos(theta),-np.sin(theta)],
+                 [0.,np.sin(theta),np.cos(theta)]]
+            return np.array(R)
+        
         # Earth angular velocity approximation [rad/s]
         omega = 7.2921158553e-5
         
         # Calculate GMST angle
-        d = jd - 2451545.0
-        T = d/36525
-        GMST = 24110.54841 + 8640184.812866*T + 0.093104*T**2 - 0.0000062*T**3
-        theta = GMST*360/86400 + 360*fr
-        theta = theta*np.pi/180
+        JD = Time(jd+fr,format='jd')
+        D_TT = JD.tt.jd - 2451545.0
+        H = np.mod(JD.ut1.jd-0.5,1)*24
+        JD_0 = np.floor(JD.ut1.jd-0.5) + 0.5
+        D_UT = JD_0 - 2451545.0
+        T = D_TT/36525
+        GMST = np.mod(6.697375 + 0.065707485828*D_UT + 1.0027379*H + 0.0854103*T + 0.0000258*T*T,24)
+        theta = GMST/24*2*np.pi
         
         # Determine state matrix
-        R = [[np.cos(theta), -np.sin(theta), 0.],
-             [np.sin(theta), np.cos(theta), 0.],
-             [0., 0., 1.]]
-        R = np.array(R)
+        R = rotz(theta)
+                
+        # Determine angular rate matrix
         trans = [[0., -1., 0.],[1., 0., 0.],[0., 0., 0.]]
         trans = np.array(trans)
         dRdt = omega*trans@R
+        
+        # Calculate final rotation matrix
+        rot = np.block([[R, dRdt],[np.zeros((3,3)), R]])
+        
+        return rot
+        
+    def teme2itrf(self,jd, fr):
+        """!@brief Calculates the ECEF to ECI rotation matrix according to the julian date
+        
+        @para    jd   Julian date
+        @para    fr   fraction of day
+        
+        @return       rotation matrix
+        """
+        
+        def rotz(theta):
+            R = [[np.cos(theta), -np.sin(theta), 0.],
+                 [np.sin(theta), np.cos(theta), 0.],
+                 [0., 0., 1.]]
+            return np.array(R)
+        def roty(theta):
+            R = [[np.cos(theta),0.,np.sin(theta)],
+                 [0.,1.,0.],
+                 [-np.sin(theta),0.,np.cos(theta)]]
+            return np.array(R)
+        def rotx(theta):
+            R = [[1.,0.,0.],
+                 [0.,np.cos(theta),-np.sin(theta)],
+                 [0.,np.sin(theta),np.cos(theta)]]
+            return np.array(R)
+        
+        # Earth angular velocity approximation [rad/s]
+        omega = 7.2921158553e-5
+        
+        # Calculate GMST angle
+        JD = Time(jd+fr,format='jd')
+        D_TT = JD.tt.jd - 2451545.0
+        H = np.mod(JD.ut1.jd-0.5,1)*24
+        JD_0 = np.floor(JD.ut1.jd-0.5) + 0.5
+        D_UT = JD_0 - 2451545.0
+        T = D_TT/36525
+        GMST = np.mod(6.697375 + 0.065707485828*D_UT + 1.0027379*H + 0.0854103*T + 0.0000258*T*T,24)
+        theta = GMST/24*2*np.pi
+        
+        # Determine state matrix
+        R = rotz(theta).T
+                
+        # Determine angular rate matrix
+        trans = [[0., -1., 0.],[1., 0., 0.],[0., 0., 0.]]
+        trans = np.array(trans)
+        dRdt = -omega*trans@R
+        
+        # Calculate final rotation matrix
         R = np.block([[R, np.zeros((3,3))],[dRdt, R]])
         
-        return R
-        
-        
+        # Calculate pseudo-Earth fixed to ITRF transformation matrix
+        obstime = Time(jd+fr,format='jd')
+        xp, yp = get_polar_motion(obstime)
+        W_y = rotx(xp)
+        W_y = np.block([[W_y, np.zeros((3,3))],[np.zeros((3,3)), W_y]])
+        W_x = roty(yp)
+        W_x = np.block([[W_x, np.zeros((3,3))],[np.zeros((3,3)), W_x]])
+        W = W_y@W_x
+
+        rot = W.T@R
+        return rot
