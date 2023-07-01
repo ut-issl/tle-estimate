@@ -31,8 +31,9 @@ Code provides the following features:
        - scipy
        - pyshtools
        - sgp4
+       - astropy
 
-    - These may be simply installed using: `pip3 install numpy pandas pyatmos spiceypy numdifftools scipy pyshtools sgp4`
+    - These may be simply installed using: `pip3 install numpy pandas pyatmos spiceypy numdifftools scipy pyshtools sgp4 astropy`
 
 4. How to use
     - Make an instance of the `BatchEstimator` class by `batch_estimator = BatchEstimator.BatchEstimator()`.
@@ -70,11 +71,16 @@ Code provides the following features:
         - Calculated velocity error by the SGP4 sample data to the estimated position by the newly calculated data.
         <img src="./figs/sgp4_velocity_error.png" style="zoom: 90%;" />
       
+## 3. Options
+
+1. The estimator can also consider the bstar term. Simply replace `batch_estimator.estimate_batch_orbit_sgp4()` with `batch_estimator.estimate_batch_orbit_sgp4_bstar()`
+2. Data editing can be introduced to remove outliers from a GPS/GNSS receiver data set. Replace `USE_DATA_EDITING` in the preamble from `0` to `1`.
+
+
 
 ## Notes
 1. Some improvements are still be made in the code. These include:
     - Fixing fidelity to the standard propagator (non-SGP4), where the atmosphere drag 'expo' and 'jb2008' and and spherical harmonic gravtitational acceleration 'spherical' models are not yet working.
-    - Adding optimisation of the atmospheric drag b-star as a parameter in the batch estimator.
 
 2. The function `estimate_batch_orbit_sgp4` performs much better than `estimate_batch_orbit` as it the SGP4 model is better developed than using newtonian based propagation. Currently, the `estimate_batch_orbit_sgp4` code should be preferenced.
 
