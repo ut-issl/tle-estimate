@@ -630,8 +630,8 @@ class BatchEstimator:
             return x
                 
         # Initialise Kepler parameters
-        et = spice.datetime2et(self.time[0])
-        rot = spice.sxform('ITRF93','J2000',et)
+        jd,fr = jday_datetime(self.time[0])
+        rot = self.teme2itrf(jd, fr).T
         self.x0 = rot@self.states[:,0]
         self.t0 = self.time[0]
         self.state_to_kepler()
@@ -650,8 +650,8 @@ class BatchEstimator:
             for i in range(self.obs_num):
                 
                 # Transform measured state to the ECI/J2000 frame
-                et = spice.datetime2et(self.time[i])
-                rot = spice.sxform('ITRF93','J2000',et)
+                jd,fr = jday_datetime(self.time[i])
+                rot = self.teme2itrf(jd, fr).T
                 x = rot@np.reshape(self.states[:,i],(6,1))
                 
                 # Calculate propagated state x approximate by numerical integration
