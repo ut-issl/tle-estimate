@@ -140,10 +140,10 @@ class BatchEstimator:
             data_set = data_set.split(',')
                 
             # Check GPS dataset validity
-            if np.int(data_set[header_loc[4]]) < MIN_VIS_SATS or \
-                    np.int(data_set[header_loc[4]]) > 64 or \
-                    np.int(data_set[header_loc[1]]) > 3000 or \
-                    np.int(data_set[header_loc[2]]) > 6.048e8: 
+            if int(data_set[header_loc[4]]) < MIN_VIS_SATS or \
+                    int(data_set[header_loc[4]]) > 64 or \
+                    int(data_set[header_loc[1]]) > 3000 or \
+                    int(data_set[header_loc[2]]) > 6.048e8: 
                 data_set = gps_data.readline()
                 continue
             
@@ -839,7 +839,7 @@ class BatchEstimator:
         if tle[0][0:1] != '1': return 0
         
         # Read first line contents
-        self.tle_sat_cat_num = np.int(tle[0][2:7])
+        self.tle_sat_cat_num = int(tle[0][2:7])
         self.tle_classification = tle[0][7:8]
         self.tle_int_desig = tle[0][9:17]
         year = pd.to_datetime(tle[0][18:20],format="%y")
@@ -851,7 +851,7 @@ class BatchEstimator:
         self.bstar = np.double(tle[0][53:54] + '.' + tle[0][54:59].strip() \
                                    + 'e' + tle[0][59:61])
         self.tle_eph_type = tle[0][62:63]
-        self.ele_set_no = np.int(tle[0][64:68])
+        self.ele_set_no = int(tle[0][64:68])
                         
         # Check tle is second row
         if tle[1][0:1] != '2': return 0
@@ -863,7 +863,7 @@ class BatchEstimator:
         aop = np.double(tle[1][33:42])
         M_anom = np.double(tle[1][43:51])
         n_motion = np.double(tle[1][52:63])
-        self.tle_rev_num = np.int(tle[1][63:68])
+        self.tle_rev_num = int(tle[1][63:68])
         self.para = [n_motion, ecc, inc, raan, aop, M_anom]
         
         # Store string parameter in class
@@ -899,7 +899,7 @@ class BatchEstimator:
         
         checksum = 0
         for ch in line:
-            if ch.isdigit() == True: checksum += np.int(ch)
+            if ch.isdigit() == True: checksum += int(ch)
             elif ch == '-': checksum += 1
         
         return checksum % 10
