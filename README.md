@@ -20,6 +20,9 @@ Code provides the following features:
        - [earth_assoc_itrf93.tf](https://naif.jpl.nasa.gov/pub/naif/generic_kernels/fk/planets/)
        - [earth_latest_high_prec.bpc](https://naif.jpl.nasa.gov/pub/naif/generic_kernels/pck/)
        - [naif0012.tls](https://naif.jpl.nasa.gov/pub/naif/generic_kernels/lsk/)
+       - [earth_720101_XXXXXX.bpc](https://naif.jpl.nasa.gov/pub/naif/generic_kernels/pck/)
+           - XXXXXX is the most recent file date.
+       - [pck00011.tpc](https://naif.jpl.nasa.gov/pub/naif/generic_kernels/pck/)
 
 3. Dependencies
     - This code is developed and tested on Python3. There is a number of class dependencies:
