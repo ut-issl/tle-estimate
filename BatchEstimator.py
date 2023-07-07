@@ -591,7 +591,8 @@ class BatchEstimator:
     
     def estimate_batch_orbit_sgp4_bstar(self):
         """!@brief  Calculates the batch orbit estimates using SVD from a set of position and
-                    velocity measurements, where the SGP4 propagator is used.
+                    velocity measurements, where the SGP4 propagator is used. Optimises all six
+                    orbital elements as well as the bstar drag term.
             
             @return success result or return error code of integration tool
         """
@@ -680,11 +681,13 @@ class BatchEstimator:
  
             iter_count = iter_count + 1
 
-        
-        self.t0 = self.time[0]
-        self.para = y[0:6]
-        self.bstar = y[6]
-        self.write_to_tle()
+        if y[6] < 0:
+            self.estimate_batch_orbit_sgp4()
+        else:        
+            self.t0 = self.time[0]
+            self.para = y[0:6]
+            self.bstar = y[6]
+            self.write_to_tle()
         
         return 1
     
