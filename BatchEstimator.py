@@ -71,30 +71,30 @@ class BatchEstimator:
         header = line.split(',')
         header_loc = np.empty(11,dtype=int)
         header_loc.fill(-1)
-        
+
         for i in range(len(header)):
-            
+
             if header[i] == 'time':
                 header_loc[0] = i
-            elif header[i] == 'GPS_R.GPS_TIME_week':
+            elif header[i] == 'COMPO.GPS_R.GPS_TIME_week':
                 header_loc[1] = i
-            elif header[i] == 'GPS_R.GPS_TIME_msec':
+            elif header[i] == 'COMPO.GPS_R.GPS_TIME_msec':
                 header_loc[2] = i
-            elif header[i] == 'GPS_R.TLM_RECEIVED_TI':
+            elif header[i] == 'COMPO.GPS_R.TLM_RECEIVED_TI':
                 header_loc[3] = i
-            elif header[i] == 'GPS_R.VISIBLE_SAT':
+            elif header[i] == 'COMPO.GPS_R.VISIBLE_SAT':
                 header_loc[4] = i
-            elif header[i] == 'GPS_R.POS_ECEF_X_m':
+            elif header[i] == 'COMPO.GPS_R.POS_ECEF_m.X':
                 header_loc[5] = i
-            elif header[i] == 'GPS_R.POS_ECEF_Y_m':
+            elif header[i] == 'COMPO.GPS_R.POS_ECEF_m.Y':
                 header_loc[6] = i
-            elif header[i] == 'GPS_R.POS_ECEF_Z_m':
+            elif header[i] == 'COMPO.GPS_R.POS_ECEF_m.Z':
                 header_loc[7] = i
-            elif header[i] == 'GPS_R.VEL_ECEF_X_m/s':
+            elif header[i] == 'COMPO.GPS_R.VEL_ECEF_m_s.X':
                 header_loc[8] = i
-            elif header[i] == 'GPS_R.VEL_ECEF_Y_m/s':
+            elif header[i] == 'COMPO.GPS_R.VEL_ECEF_m_s.Y':
                 header_loc[9] = i
-            elif header[i] == 'GPS_R.VEL_ECEF_Z_m/s':
+            elif header[i] == 'COMPO.GPS_R.VEL_ECEF_m_s.Z':
                 header_loc[10] = i
         
         return header_loc
