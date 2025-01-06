@@ -74,27 +74,27 @@ class BatchEstimator:
 
         for i in range(len(header)):
 
-            if header[i] == 'time':
+            if header[i] == 'Time':
                 header_loc[0] = i
-            elif header[i] == 'COMPO.GPS_R.GPS_TIME_week':
+            elif header[i] == 'ORBIT.COMPO.GPS_R.GPS_TIME_week':
                 header_loc[1] = i
-            elif header[i] == 'COMPO.GPS_R.GPS_TIME_msec':
+            elif header[i] == 'ORBIT.COMPO.GPS_R.GPS_TIME_msec':
                 header_loc[2] = i
-            elif header[i] == 'COMPO.GPS_R.TLM_RECEIVED_TI':
+            elif header[i] == 'ORBIT.COMPO.GPS_R.TLM_RECEIVED_TI':
                 header_loc[3] = i
-            elif header[i] == 'COMPO.GPS_R.VISIBLE_SAT':
+            elif header[i] == 'ORBIT.COMPO.GPS_R.VISIBLE_SAT':
                 header_loc[4] = i
-            elif header[i] == 'COMPO.GPS_R.POS_ECEF_m.X':
+            elif header[i] == 'ORBIT.COMPO.GPS_R.POS_ECEF_m.X':
                 header_loc[5] = i
-            elif header[i] == 'COMPO.GPS_R.POS_ECEF_m.Y':
+            elif header[i] == 'ORBIT.COMPO.GPS_R.POS_ECEF_m.Y':
                 header_loc[6] = i
-            elif header[i] == 'COMPO.GPS_R.POS_ECEF_m.Z':
+            elif header[i] == 'ORBIT.COMPO.GPS_R.POS_ECEF_m.Z':
                 header_loc[7] = i
-            elif header[i] == 'COMPO.GPS_R.VEL_ECEF_m_s.X':
+            elif header[i] == 'ORBIT.COMPO.GPS_R.VEL_ECEF_m_s.X':
                 header_loc[8] = i
-            elif header[i] == 'COMPO.GPS_R.VEL_ECEF_m_s.Y':
+            elif header[i] == 'ORBIT.COMPO.GPS_R.VEL_ECEF_m_s.Y':
                 header_loc[9] = i
-            elif header[i] == 'COMPO.GPS_R.VEL_ECEF_m_s.Z':
+            elif header[i] == 'ORBIT.COMPO.GPS_R.VEL_ECEF_m_s.Z':
                 header_loc[10] = i
         
         return header_loc
@@ -140,10 +140,10 @@ class BatchEstimator:
             data_set = data_set.split(',')
                 
             # Check GPS dataset validity
-            if int(data_set[header_loc[4]]) < MIN_VIS_SATS or \
-                    int(data_set[header_loc[4]]) > 64 or \
-                    int(data_set[header_loc[1]]) > 3000 or \
-                    int(data_set[header_loc[2]]) > 6.048e8: 
+            if int(float(data_set[header_loc[4]])) < MIN_VIS_SATS or \
+                    int(float(data_set[header_loc[4]])) > 64 or \
+                    int(float(data_set[header_loc[1]])) > 3000 or \
+                    int(float(data_set[header_loc[2]])) > 6.048e8: 
                 data_set = gps_data.readline()
                 continue
             
@@ -167,7 +167,7 @@ class BatchEstimator:
             self.tlm_received[self.obs_num] = data_set[header_loc[3]]     
                             
             # GPS Number of Visible Satellites
-            self.nsats[self.obs_num] = data_set[header_loc[4]]
+            self.nsats[self.obs_num] = int(float(data_set[header_loc[4]]))
                             
             # GPS Positions in ECEF [m]
             self.states[0,self.obs_num] = data_set[header_loc[5]]
